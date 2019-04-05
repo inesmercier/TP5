@@ -13,7 +13,7 @@ options(encoding = "UTF-8")
 ## 1. Créer une série temporelle du CO2 à partir des données de hawai.csv
 
 ```{r}
-hawai <- read.csv(file = "~/Desktop/TP5/hawai.csv") # importation du fichier csv, insérer son propre répertoire ici
+hawai <- read.csv(file = "~/hawai.csv") # importation du fichier csv, insérer son propre répertoire ici
 ```
   
 ### 1.1 Standardiser les dates  
