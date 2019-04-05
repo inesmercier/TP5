@@ -1,0 +1,160 @@
+---
+title: "TP5"
+author: "Inès Mercier"
+date: '2019-03-27'
+output: pdf_document
+---
+# Analyse multivariée, imputation et valeurs aberrantes
+
+```{r, results='hide', warning=FALSE}
+options(encoding = "UTF-8")
+```
+
+## 1. Créer une série temporelle du CO2 à partir des données de hawai.csv
+
+```{r}
+hawai <- read.csv(file = "~/Desktop/TP5/hawai.csv") # importation du fichier csv, insérer son propre répertoire ici
+```
+  
+### 1.1 Standardiser les dates  
+```{r}
+library(dplyr)
+library(lubridate)
+
+hawai[4,1] <- 1958.417 # remplacer par bonne année
+hawai <- hawai %>%  
+  mutate(Date = time %>% date_decimal()) %>% # format date
+  mutate(Year = Date %>% year())
+```
+  
+### 1.2 Création d'une série temporelle
+```{r}
+hawai_ts <- ts(hawai %>% select(CO2), # Création de la série temporelle
+               start = c(hawai$Year[1], 3), # la série commence en 1958 au mois de mars, soit le 3e mois de l'année
+               frequency = 12) # nmbr de mois dans une année
+```
+  
+### 1.3 Visualiser la série temporelle
+```{r}
+library(ggplot2)
+autoplot(hawai_ts) +
+  geom_smooth() + 
+  ggtitle("Série temporelle") + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 45, size = 8))
+```
+  
+Commentaires:  
+- Il est possible d'observer une tendance générale à la hausse, qui se dit de l'augmentation constante des moyennes des mesures de C02 atmosphérique au fil des années. Cela s'explique probablement par la croissance de la population, donc de l'activité humaine dans le temps.  
+- Il semble y avoir des cycles réguliers qui oscillent autour de la tendance générale linéaire (fluctuation saisonnière). Ces derniers ne semblent pas augmenter dans le temps; c'est-à-dire à mesure que le niveau de la série augmente.  
+  
+```{r}
+library(cowplot)
+ggA <- ggseasonplot(window(hawai_ts[, 1],1958-4/12, 2001-1/12)) + ggtitle("Fluctuation saisonnière") # Pour visualiser la fluctuation saisonnière
+plot(ggA)
+```
+  
+Commentaires:  
+- La distribution des moyennes des mesures mensuelles de CO2 atmosphériques reste relativement la même au fil du temps.  
+- Les moyennes mensuelles augmentent à chaque année de façon relativement constantes.  
+- À chaque année, la moyenne mensuelle maximale semble se trouver au mois de mai. La moyenne mensuelle minimale se situe plutôt au mois de septembre ou octobre.  
+  
+## 2. Séparer la série en parties d'entraînement (environ 70% des données) et en partie test
+  
+```{r}
+hawai$Date[length(hawai$Date)*0.7] %>% year() # 1988 est l'année où 70% des données sont rencontrées
+hawai_ts_train <- window(hawai_ts, end = 1988.999) # Partie d'entraînement
+hawai_ts_test <- window(hawai_ts, start = 1989.000) # Partie test
+```
+
+## 3. Créer un modèle ETS sur les données d'entraînement, puis projeter la prévision de CO2 atmosphérique pour comparer aux données test
+
+### 3.1 Modèle ETS sur les données d'entraînement
+```{r}
+library(forecast)
+hawai_model1 <-  ets(hawai_ts_train) # modèle ets
+hawai_model1
+```
+
+Commentaires:  
+- Le modèle retenu est un ETS(A,A,A).  
+- Ce modèle indique, dans l'ordre, que l'erreur, la tendance et la saison sont de type additif(A).  
+- La série temporelle peut être décrite en utilisant la méthode additive de Holt-Winters. Cette méthode va dans le sens de la tendance linéaire et de la fluctuation saisonnière qui reste relativement constante dans le temps.  
+  
+### 3.2 Projection de la prévision
+  
+```{r}
+hawai_fc <- hawai_model1 %>% forecast() # pour obtenir une prédiction
+hawai_fc %>% autoplot()
+
+# Visulisation de l'évolution des différentes composantes
+autoplot(hawai_model1) 
+# Le modèle a bien capturé la tendance et la saison observée dans le jeu de données
+```
+  
+Commentaires:  
+- La prédiction semble superposée sur la série temporelle test (`hawai_ts_test`), ce qui signifie qu'elle capture bien la tendance et la saison du jeu de données.   
+
+## 4. Effectuer une analyse des résidus
+
+```{r} 
+checkresiduals(hawai_model1)
+```
+
+Commentaires:  
+- Les résidus semblent rester relativement constants au fil du temps, ce qui indiquerait que l'erreur de type additif(A) convient.  
+- Le graphique de la distribution des résidus montre des valeurs aberrantes.  
+- La probabilité que les résidus proviennent d'une série de bruit blanc est faible (p-value = 3.645e-07), ce qui indique la présence d'une structure qui n'a pas été capturée par le modèle. Il existe probablement un modèle qui convient mieux et qui pourrait aider à obtenir de meilleurs résidus.  
+- Au graphique ACF, 4 pointes ("outliers") dépassent les lignes bleues pointillées (seuil 95%), ce qui indique aussi qu'il ne s'agit probablement pas d'une série de bruit blanc.  
+- La corrélation entre les résidus signifie qu'il y reste de l'information qui pourrait être utilisée pour effectuer des prédictions ("forecasting").   
+  
+## 5. Le modèle est-il fiable? Comment pourrait-il être amélioré?
+
+### 5.1 Fiabilité du modèle
+
+Comme mentionné plus haut, la prévision temporelle ETS(A,A,A) effectuée à partir de la série temporelle d'entraînement (`hawai_ts_train`) prend bien les valeurs de la série temporelle test (`hawai_ts_test`). Toutefois, un bon modèle ne doit pas seulement fournir des prévisions suffisamment précises, il doit aussi produire des résidus statistiquement indépendants. Les résidus devraient contenir que du bruit blanc et aucune composante régulière ne devrait s'y trouver. Or, la probabilité que les résidus aient été générés à partir de bruit blanc est pratiquement nulle et il y a autocorrélation.  
+  
+### 5.2 Amélioration du modèle
+  
+Les modèles SES se basent sur la description de la tendance et la saison se trouvant dans les données. Or, les modèles ARIMA cherchent à dépeindre l'autocorrélation au sein du jeu de données. Voyons ce que l'application d'un tel modèle sur la série d'entraînement produit.  
+  
+```{r}
+hawai_model2 <- hawai_ts_train %>% auto.arima(approximation = FALSE) # approximation n'est pas effectuée 
+summary(hawai_model2)
+```
+  
+Commentaires:  
+- Une ARIMA(3,1,1)(0,1,1)[12] est obtenue sous le format ARIMA(p,d,q)(P,D,Q)m.  
+  
+```{r}
+hawai_model2 %>% forecast() %>% autoplot() # prédictions
+```
+
+Commentaires:  
+- La précision des estimations basées sur la série d'entraînement semble bonne ici aussi.    
+  
+```{r}
+checkresiduals(hawai_arima)
+```
+  
+Commentaires:  
+- La probabilité que les résidus proviennent d'une population d'un bruit blanc a nettement augmenté (p-value = 0.4433) par rapport au modèle ETS(A,A,A) initial (p-value = 3.645e-07). Ce modèle semble donc mieux convenir.  
+- Un seul résidus dépasse le seuil de signification (par rapport à 4 au premier modèle).   
+- Les résidus restent près de 0 et ne présentent pas de structure évidente.  
+
+### 5.3 Comparaison des modèles 
+  
+```{r}
+ets <- hawai_model1 %>% forecast() %>% accuracy(hawai_ts)
+arima <- hawai_model2 %>% forecast() %>% accuracy(hawai_ts)
+
+arima[,c("RMSE","MAE","MAPE","MASE")]
+# RMSE_train = 0.3293731
+# RMSE_test = 0.6096980
+ets[,c("RMSE","MAE","MAPE","MASE")] 
+# RMSE_train = 0.3329635
+# RMSE_test = 0.3112535
+```
+  
+Commentaires:  
+- La RMSE (Root Mean Squared Error) d'entraînement du modèle ARIMA est plus faible que celle du modèle ETS. C'est un argument supplémentaire pour choisir ce dernier afin de générer une prévision de CO2 atmosphérique au fil du temps.  
